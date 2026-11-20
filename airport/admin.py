@@ -4,10 +4,11 @@ from airport.models import (
     Route,
     AirplaneType,
     Airplane,
+    Crew,
 )
 
 admin.site.register(Airport)
 admin.site.register(Route)
 admin.site.register(AirplaneType)
 admin.site.register(Airplane)
-
+admin.site.register(Crew)
