@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.validators import MinValueValidator
+from django.core.exceptions import ValidationError
 
 
 class Airport(models.Model):
@@ -58,3 +59,37 @@ class Crew(models.Model):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
+
+
+class Flight(models.Model):
+    route = models.ForeignKey(
+        Route,
+        on_delete=models.PROTECT,
+        related_name="flights",
+    )
+    airplane = models.ForeignKey(
+        Airplane,
+        on_delete=models.PROTECT,
+        related_name="flights",
+    )
+    departure_time = models.DateTimeField()
+    arrival_time = models.DateTimeField()
+    crew = models.ManyToManyField(
+        Crew,
+        related_name="flights",
+    )
+
+    def clean(self):
+        super().clean()
+        if (
+            self.departure_time is not None
+            and self.arrival_time is not None
+            and self.arrival_time <= self.departure_time
+        ):
+            raise ValidationError({
+                "arrival_time": "Arrival time must be later than departure time",
+            })
+
+
+    def __str__(self):
+        return f"{self.route} | {self.departure_time}"
