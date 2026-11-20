@@ -1,6 +1,7 @@
 from django.db import models
 from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
+from django.conf import settings
 
 
 class Airport(models.Model):
@@ -90,6 +91,62 @@ class Flight(models.Model):
                 "arrival_time": "Arrival time must be later than departure time",
             })
 
-
     def __str__(self):
         return f"{self.route} | {self.departure_time}"
+
+
+class Order(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="orders",
+    )
+
+    def __str__(self):
+        return f"Order #{self.pk}"
+
+
+class Ticket(models.Model):
+    row = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+    )
+    seat = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+    )
+    flight = models.ForeignKey(
+        Flight,
+        on_delete=models.PROTECT,
+        related_name="tickets",
+    )
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="tickets",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["flight", "row", "seat"],
+                name="unique_seat_per_flight",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.flight_id is not None:
+            airplane = self.flight.airplane
+
+            if self.row is not None and self.row > airplane.rows:
+                raise ValidationError({
+                    "row": "Row number exceeds airplane capacity.",
+                })
+
+            if self.seat is not None and self.seat > airplane.seats_in_row:
+                raise ValidationError({
+                    "seat": "Seat number exceeds airplane capacity.",
+                })
+
+    def __str__(self):
+        return f"Flight #{self.flight.pk} | Row {self.row} | Seat {self.seat}"
