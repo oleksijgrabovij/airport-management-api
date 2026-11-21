@@ -1,6 +1,8 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from airport.permissions import IsAdminOrReadOnly
+from datetime import date
+from rest_framework.exceptions import ValidationError
 
 from airport.models import (
     Airport,
@@ -54,11 +56,60 @@ class CrewViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnly]
 
 
+
 class FlightViewSet(viewsets.ModelViewSet):
     queryset = Flight.objects.all()
     serializer_class = FlightSerializer
     permission_classes = [IsAdminOrReadOnly]
 
+    def get_queryset(self):
+        queryset = self.queryset
+
+        source = self.request.query_params.get("source")
+        destination = self.request.query_params.get("destination")
+        departure_date = self.request.query_params.get("departure_date")
+
+        for field, value in [
+            ("source", source),
+            ("destination", destination),
+        ]:
+            if value is not None:
+                if (
+                    not value.isascii()
+                    or not value.isdecimal()
+                    or len(value) > 19
+                    or not 0 < int(value) <= 9223372036854775807
+                ):
+                    raise ValidationError({
+                        field: "Enter a valid positive integer ID."
+                    })
+
+        if source is not None:
+            queryset = queryset.filter(route__source_id=int(source))
+
+        if destination is not None:
+            queryset = queryset.filter(
+                route__destination_id=int(destination)
+            )
+
+        if departure_date is not None:
+            try:
+                parsed_date = date.fromisoformat(departure_date)
+            except ValueError:
+                raise ValidationError({
+                    "departure_date": "Date must be in YYYY-MM-DD format."
+                })
+
+            if parsed_date.isoformat() != departure_date:
+                raise ValidationError({
+                    "departure_date": "Date must be in YYYY-MM-DD format."
+                })
+
+            queryset = queryset.filter(
+                departure_time__date=parsed_date
+            )
+
+        return queryset
 
 
 class OrderViewSet(viewsets.ModelViewSet):
