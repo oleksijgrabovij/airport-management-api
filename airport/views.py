@@ -1,11 +1,15 @@
 from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from airport.models import (
     Airport,
     Route,
     AirplaneType,
     Airplane,
-    Crew, Flight,
+    Crew,
+    Flight,
+    Order,
+    Ticket,
 )
 from airport.serializers import (
     AirportSerializer,
@@ -14,6 +18,8 @@ from airport.serializers import (
     AirplaneSerializer,
     CrewSerializer,
     FlightSerializer,
+    OrderSerializer,
+    TicketSerializer,
 )
 
 
@@ -45,3 +51,26 @@ class CrewViewSet(viewsets.ModelViewSet):
 class FlightViewSet(viewsets.ModelViewSet):
     queryset = Flight.objects.all()
     serializer_class = FlightSerializer
+
+
+class OrderViewSet(viewsets.ModelViewSet):
+    queryset = Order.objects.all()
+    serializer_class = OrderSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class TicketViewSet(viewsets.ModelViewSet):
+    queryset = Ticket.objects.all()
+    serializer_class = TicketSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Ticket.objects.filter(
+            order__user=self.request.user
+        )

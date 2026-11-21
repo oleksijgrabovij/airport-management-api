@@ -6,6 +6,8 @@ from airport.models import (
     Airplane,
     Crew,
     Flight,
+    Order,
+    Ticket,
 )
 
 
@@ -70,3 +72,80 @@ class FlightSerializer(serializers.ModelSerializer):
                 "arrival_time": "Arrival time must be later than departure time",
             })
         return attrs
+
+
+class OrderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Order
+        fields = ["id", "created_at", "user"]
+        read_only_fields = ["id", "created_at", "user"]
+
+
+class TicketSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Ticket
+        fields = ["id", "row", "seat", "flight", "order"]
+        read_only_fields = ["id"]
+
+    def validate(self, attrs):
+        flight = attrs.get(
+            "flight",
+            self.instance.flight if self.instance else None,
+        )
+        order = attrs.get(
+            "order",
+            self.instance.order if self.instance else None,
+        )
+        row = attrs.get(
+            "row",
+            self.instance.row if self.instance else None,
+        )
+        seat = attrs.get(
+            "seat",
+            self.instance.seat if self.instance else None,
+        )
+
+        request = self.context.get("request")
+
+        if request is None or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                "Authentication is required."
+            )
+
+        if order is not None and order.user_id != request.user.id:
+            raise serializers.ValidationError({
+                "order": "You cannot add tickets to another user's order.",
+            })
+
+        if flight is not None:
+            airplane = flight.airplane
+
+            if row is not None and row > airplane.rows:
+                raise serializers.ValidationError({
+                    "row": "Row number exceeds airplane capacity.",
+                })
+
+            if seat is not None and seat > airplane.seats_in_row:
+                raise serializers.ValidationError({
+                    "seat": "Seat number exceeds airplane capacity.",
+                })
+
+        if flight is not None and row is not None and seat is not None:
+            existing_tickets = Ticket.objects.filter(
+                flight=flight,
+                row=row,
+                seat=seat,
+            )
+
+            if self.instance:
+                existing_tickets = existing_tickets.exclude(
+                    pk=self.instance.pk
+                )
+
+            if existing_tickets.exists():
+                raise serializers.ValidationError({
+                    "seat": "This seat is already booked for this flight.",
+                })
+
+        return attrs
+
