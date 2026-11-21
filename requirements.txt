@@ -8,6 +8,8 @@ drf-spectacular-sidecar==2026.10.1
 inflection==0.5.1
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
+psycopg==3.3.9
+psycopg-binary==3.3.9
 PyJWT==2.15.1
 PyYAML==6.0.4
 referencing==0.37.0
