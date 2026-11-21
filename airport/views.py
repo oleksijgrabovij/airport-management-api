@@ -5,7 +5,7 @@ from airport.models import (
     Route,
     AirplaneType,
     Airplane,
-    Crew,
+    Crew, Flight,
 )
 from airport.serializers import (
     AirportSerializer,
@@ -13,6 +13,7 @@ from airport.serializers import (
     AirplaneTypeSerializer,
     AirplaneSerializer,
     CrewSerializer,
+    FlightSerializer,
 )
 
 
@@ -39,3 +40,8 @@ class AirplaneViewSet(viewsets.ModelViewSet):
 class CrewViewSet(viewsets.ModelViewSet):
     queryset = Crew.objects.all()
     serializer_class = CrewSerializer
+
+
+class FlightViewSet(viewsets.ModelViewSet):
+    queryset = Flight.objects.all()
+    serializer_class = FlightSerializer
