@@ -2,6 +2,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from airport.permissions import IsAdminOrReadOnly
 from datetime import date
+from django.db import IntegrityError, transaction
 from rest_framework.exceptions import ValidationError
 
 from airport.models import (
@@ -58,7 +59,7 @@ class CrewViewSet(viewsets.ModelViewSet):
 
 
 class FlightViewSet(viewsets.ModelViewSet):
-    queryset = Flight.objects.all()
+    queryset = Flight.objects.prefetch_related("crew")
     serializer_class = FlightSerializer
     permission_classes = [IsAdminOrReadOnly]
 
@@ -124,6 +125,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
+
 class TicketViewSet(viewsets.ModelViewSet):
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -133,3 +135,50 @@ class TicketViewSet(viewsets.ModelViewSet):
         return Ticket.objects.filter(
             order__user=self.request.user
         )
+
+    def _save_ticket(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save()
+
+        except IntegrityError as exc:
+            attrs = serializer.validated_data
+            instance = serializer.instance
+
+            flight = attrs.get(
+                "flight",
+                instance.flight if instance else None,
+            )
+            row = attrs.get(
+                "row",
+                instance.row if instance else None,
+            )
+            seat = attrs.get(
+                "seat",
+                instance.seat if instance else None,
+            )
+
+            if all(value is not None for value in (flight, row, seat)):
+                existing_tickets = Ticket.objects.filter(
+                    flight=flight,
+                    row=row,
+                    seat=seat,
+                )
+
+                if instance is not None and instance.pk is not None:
+                    existing_tickets = existing_tickets.exclude(
+                        pk=instance.pk
+                    )
+
+                if existing_tickets.exists():
+                    raise ValidationError({
+                        "seat": "This seat is already booked for this flight.",
+                    }) from exc
+
+            raise
+
+    def perform_create(self, serializer):
+        self._save_ticket(serializer)
+
+    def perform_update(self, serializer):
+        self._save_ticket(serializer)
