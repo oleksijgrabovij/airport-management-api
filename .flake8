@@ -1,0 +1,17 @@
+[flake8]
+max-line-length = 79
+
+extend-exclude =
+    .git,
+    .venv,
+    venv,
+    __pycache__,
+    .idea,
+    .pytest_cache,
+    migrations,
+    staticfiles,
+    build,
+    dist
+
+statistics = True
+show-source = True

@@ -9,6 +9,9 @@ from airport.models import (
     Order,
     Ticket,
 )
+from copy import copy
+from django.core.exceptions import ValidationError as DjangoValidationError
+from airport.validators import is_seat_booked
 
 
 class AirportSerializer(serializers.ModelSerializer):
@@ -21,6 +24,22 @@ class RouteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Route
         fields = ["id", "source", "destination", "distance"]
+
+    def validate(self, attrs):
+        route = copy(self.instance) if self.instance else Route()
+
+        for field in ("source", "destination"):
+            if field in attrs:
+                setattr(route, field, attrs[field])
+
+        try:
+            route.clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(
+                exc.message_dict
+            ) from exc
+
+        return attrs
 
 
 class AirplaneTypeSerializer(serializers.ModelSerializer):
@@ -54,23 +73,24 @@ class FlightSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
-        departure_time = attrs.get(
-            "departure_time",
-            self.instance.departure_time if self.instance else None,
-        )
-        arrival_time = attrs.get(
-            "arrival_time",
-            self.instance.arrival_time if self.instance else None,
-        )
+        flight = copy(self.instance) if self.instance else Flight()
 
-        if (
-            departure_time is not None
-            and arrival_time is not None
-            and arrival_time <= departure_time
+        for field in (
+            "route",
+            "airplane",
+            "departure_time",
+            "arrival_time",
         ):
-            raise serializers.ValidationError({
-                "arrival_time": "Arrival time must be later than departure time",
-            })
+            if field in attrs:
+                setattr(flight, field, attrs[field])
+
+        try:
+            flight.clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(
+                exc.message_dict
+            ) from exc
+
         return attrs
 
 
@@ -84,7 +104,13 @@ class OrderSerializer(serializers.ModelSerializer):
 class TicketSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ticket
-        fields = ["id", "row", "seat", "flight", "order"]
+        fields = [
+            "id",
+            "row",
+            "seat",
+            "flight",
+            "order",
+        ]
         read_only_fields = ["id"]
 
     def validate(self, attrs):
@@ -114,7 +140,10 @@ class TicketSerializer(serializers.ModelSerializer):
 
         if order is not None and order.user_id != request.user.id:
             raise serializers.ValidationError({
-                "order": "You cannot add tickets to another user's order.",
+                "order": (
+                    "You cannot add tickets to "
+                    "another user's order."
+                )
             })
 
         if flight is not None:
@@ -122,30 +151,24 @@ class TicketSerializer(serializers.ModelSerializer):
 
             if row is not None and row > airplane.rows:
                 raise serializers.ValidationError({
-                    "row": "Row number exceeds airplane capacity.",
+                    "row": "Row number exceeds airplane capacity."
                 })
 
             if seat is not None and seat > airplane.seats_in_row:
                 raise serializers.ValidationError({
-                    "seat": "Seat number exceeds airplane capacity.",
+                    "seat": "Seat number exceeds airplane capacity."
                 })
 
-        if flight is not None and row is not None and seat is not None:
-            existing_tickets = Ticket.objects.filter(
-                flight=flight,
-                row=row,
-                seat=seat,
-            )
-
-            if self.instance:
-                existing_tickets = existing_tickets.exclude(
-                    pk=self.instance.pk
+        if is_seat_booked(
+            flight=flight,
+            row=row,
+            seat=seat,
+            exclude_ticket=self.instance,
+        ):
+            raise serializers.ValidationError({
+                "seat": (
+                    "This seat is already booked for this flight."
                 )
-
-            if existing_tickets.exists():
-                raise serializers.ValidationError({
-                    "seat": "This seat is already booked for this flight.",
-                })
+            })
 
         return attrs
-

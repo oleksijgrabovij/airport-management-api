@@ -8,6 +8,9 @@ class Airport(models.Model):
     name = models.CharField(max_length=100)
     closest_big_city = models.CharField(max_length=255)
 
+    class Meta:
+        ordering = ["name", "id"]
+
     def __str__(self):
         return self.name
 
@@ -26,11 +29,46 @@ class Route(models.Model):
     distance = models.PositiveIntegerField()
 
     def __str__(self):
-        return f"{self.source.closest_big_city} -> {self.destination.closest_big_city}"
+        return (
+            f"{self.source.closest_big_city} -> "
+            f"{self.destination.closest_big_city}"
+        )
+
+    class Meta:
+        ordering = ["source_id", "destination_id", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(
+                    source=models.F("destination")
+                ),
+                name="route_source_destination_different",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.source_id is not None
+            and self.destination_id is not None
+            and self.source_id == self.destination_id
+        ):
+            raise ValidationError({
+                "destination": (
+                    "Source and destination airports must differ."
+                )
+            })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class AirplaneType(models.Model):
     name = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ["name", "id"]
 
     def __str__(self):
         return self.name
@@ -50,6 +88,9 @@ class Airplane(models.Model):
         related_name="airplanes",
     )
 
+    class Meta:
+        ordering = ["name", "id"]
+
     def __str__(self):
         return f"{self.name} ({self.airplane_type.name})"
 
@@ -57,6 +98,9 @@ class Airplane(models.Model):
 class Crew(models.Model):
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
+
+    class Meta:
+        ordering = ["last_name", "first_name", "id"]
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
@@ -88,8 +132,25 @@ class Flight(models.Model):
             and self.arrival_time <= self.departure_time
         ):
             raise ValidationError({
-                "arrival_time": "Arrival time must be later than departure time",
+                "arrival_time": (
+                    "Arrival time must be later than departure time"
+                ),
             })
+
+    class Meta:
+        ordering = ["departure_time", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    arrival_time__gt=models.F("departure_time")
+                ),
+                name="flight_arrival_after_departure",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.route} | {self.departure_time}"
@@ -103,7 +164,13 @@ class Order(models.Model):
         related_name="orders",
     )
 
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
     def __str__(self):
+        if self.pk is None:
+            return "Unsaved order"
+
         return f"Order #{self.pk}"
 
 
@@ -126,6 +193,7 @@ class Ticket(models.Model):
     )
 
     class Meta:
+        ordering = ["flight_id", "row", "seat", "id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["flight", "row", "seat"],
@@ -147,6 +215,10 @@ class Ticket(models.Model):
                 raise ValidationError({
                     "seat": "Seat number exceeds airplane capacity.",
                 })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Flight #{self.flight.pk} | Row {self.row} | Seat {self.seat}"

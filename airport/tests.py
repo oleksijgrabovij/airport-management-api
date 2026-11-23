@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
+from django.core.exceptions import ValidationError
 
 from airport.models import (
     Airport,
@@ -160,7 +161,7 @@ class AirportAPITests(APITestCase):
             response.status_code,
             status.HTTP_200_OK,
         )
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(len(response.data["results"]), 1)
 
     def test_filter_flights_by_date(self):
         departure_date = timezone.localtime(
@@ -176,7 +177,7 @@ class AirportAPITests(APITestCase):
             response.status_code,
             status.HTTP_200_OK,
         )
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(len(response.data["results"]), 1)
 
     def test_invalid_flight_filters(self):
         invalid_params = [
@@ -363,7 +364,7 @@ class AirportAPITests(APITestCase):
             response.status_code,
             status.HTTP_200_OK,
         )
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(len(response.data["results"]), 1)
 
     # JWT AUTHENTICATION
 
@@ -410,3 +411,54 @@ class AirportAPITests(APITestCase):
             orders_response.status_code,
             status.HTTP_200_OK,
         )
+
+    def test_flight_model_rejects_invalid_time(self):
+        with self.assertRaises(ValidationError):
+            Flight.objects.create(
+                route=self.route,
+                airplane=self.airplane,
+                departure_time=self.departure,
+                arrival_time=self.departure,
+            )
+
+    def test_ticket_model_rejects_invalid_row(self):
+        with self.assertRaises(ValidationError):
+            Ticket.objects.create(
+                row=self.airplane.rows + 1,
+                seat=1,
+                flight=self.flight,
+                order=self.order,
+            )
+
+    def test_unsaved_order_string(self):
+        order = Order(user=self.user)
+
+        self.assertEqual(str(order), "Unsaved order")
+
+    def test_duplicate_ticket_on_update(self):
+        first_ticket = Ticket.objects.create(
+            row=1,
+            seat=1,
+            flight=self.flight,
+            order=self.order,
+        )
+
+        Ticket.objects.create(
+            row=1,
+            seat=2,
+            flight=self.flight,
+            order=self.order,
+        )
+
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.patch(
+            f"/api/airport/tickets/{first_ticket.pk}/",
+            {"seat": 2},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        first_ticket.refresh_from_db()
+        self.assertEqual(first_ticket.seat, 1)

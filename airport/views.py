@@ -4,6 +4,10 @@ from airport.permissions import IsAdminOrReadOnly
 from datetime import date
 from django.db import IntegrityError, transaction
 from rest_framework.exceptions import ValidationError
+from django_filters.rest_framework import DjangoFilterBackend
+from airport.filters import FlightFilter
+from django.core.exceptions import ValidationError as DjangoValidationError
+from airport.validators import is_seat_booked
 
 from airport.models import (
     Airport,
@@ -57,11 +61,13 @@ class CrewViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnly]
 
 
-
 class FlightViewSet(viewsets.ModelViewSet):
     queryset = Flight.objects.prefetch_related("crew")
     serializer_class = FlightSerializer
     permission_classes = [IsAdminOrReadOnly]
+
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = FlightFilter
 
     def get_queryset(self):
         queryset = self.queryset
@@ -125,7 +131,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
-
 class TicketViewSet(viewsets.ModelViewSet):
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -140,6 +145,14 @@ class TicketViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 serializer.save()
+
+        except DjangoValidationError as exc:
+            detail = (
+                exc.message_dict
+                if hasattr(exc, "message_dict")
+                else exc.messages
+            )
+            raise ValidationError(detail) from exc
 
         except IntegrityError as exc:
             attrs = serializer.validated_data
@@ -158,22 +171,18 @@ class TicketViewSet(viewsets.ModelViewSet):
                 instance.seat if instance else None,
             )
 
-            if all(value is not None for value in (flight, row, seat)):
-                existing_tickets = Ticket.objects.filter(
-                    flight=flight,
-                    row=row,
-                    seat=seat,
-                )
-
-                if instance is not None and instance.pk is not None:
-                    existing_tickets = existing_tickets.exclude(
-                        pk=instance.pk
+            if is_seat_booked(
+                flight=flight,
+                row=row,
+                seat=seat,
+                exclude_ticket=instance,
+            ):
+                raise ValidationError({
+                    "seat": (
+                        "This seat is already booked "
+                        "for this flight."
                     )
-
-                if existing_tickets.exists():
-                    raise ValidationError({
-                        "seat": "This seat is already booked for this flight.",
-                    }) from exc
+                }) from exc
 
             raise
 
